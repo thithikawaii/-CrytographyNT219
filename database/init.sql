@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     enc_phone TEXT NOT NULL,
     nonce_cccd VARCHAR(255) NOT NULL,
     nonce_phone VARCHAR(255) NOT NULL,
+    tag_cccd VARCHAR(255) NOT NULL,
+    tag_phone VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

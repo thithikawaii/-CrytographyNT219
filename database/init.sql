@@ -1,0 +1,19 @@
+CREATE DATABASE IF NOT EXISTS mmh_project;
+USE mmh_project;
+
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(255) NOT NULL,
+    enc_cccd TEXT NOT NULL,
+    enc_phone TEXT NOT NULL,
+    nonce_cccd VARCHAR(255) NOT NULL,
+    nonce_phone VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS keys_storage (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    key_tag VARCHAR(255) UNIQUE NOT NULL,
+    encrypted_dek TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

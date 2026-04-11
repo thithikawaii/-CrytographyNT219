@@ -29,9 +29,12 @@ def get_db_connection():
 
 @app.post("/users")
 def create_user(user: UserCreate):
-    db = get_db_connection()
-    cursor = db.cursor()
+    db = None
+    cursor = None
     try:
+        db = get_db_connection()
+        cursor = db.cursor()
+        
         dek = generate_dek()
         enc_cccd = encrypt_pii(user.cccd, dek)
         enc_phone = encrypt_pii(user.phone, dek)
@@ -49,17 +52,26 @@ def create_user(user: UserCreate):
         return {"message": "Tạo user thành công", "user_id": new_user_id}
 
     except Exception as e:
-        db.rollback()
+        if db:
+            db.rollback()
+
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        cursor.close()
-        db.close()
+
+        if cursor:
+            cursor.close()
+        if db and db.is_connected():
+            db.close()
 
 @app.get("/users/{user_id}")
 def get_user(user_id: int):
-    db = get_db_connection()
-    cursor = db.cursor(dictionary=True)
+    
+    db = None
+    cursor = None
     try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+        
         cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         user_data = cursor.fetchone()
 
@@ -82,7 +94,11 @@ def get_user(user_id: int):
         }
 
     except Exception as e:
+        # [NGÀY 3]: Tạm ném str(e) ra Postman để dễ debug.
         raise HTTPException(status_code=500, detail=f"Lỗi: {str(e)}")
     finally:
-        cursor.close()
-        db.close()
+        # [VÁ LỖI 1]: Kiểm tra biến có tồn tại không trước khi đóng
+        if cursor:
+            cursor.close()
+        if db and db.is_connected():
+            db.close()

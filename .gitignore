@@ -1,4 +1,16 @@
 .env
 __pycache__/
 *.pyc
-.vscode/
+.vscode
+*.key
+*.p12
+*.pem
+*.pfx
+nginx/certs/
+setup/*.bin
+*.env
+.env.*
+*.log
+!EVIDENCE/*.log
+!EVAL/*.log
+.DS_Store

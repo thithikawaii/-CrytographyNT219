@@ -1,14 +1,7 @@
 import os
 import base64
-from dotenv import load_dotenv
 from Crypto.Cipher import AES
 
-load_dotenv()
-MASTER_KEK_STR = os.getenv("MASTER_KEK")
-if not MASTER_KEK_STR or len(MASTER_KEK_STR) != 32:
-    raise ValueError("MASTER_KEK phải dài đúng 32 bytes trong file .env!")
-
-MASTER_KEK = MASTER_KEK_STR.encode('utf-8')
 
 def generate_dek() -> bytes:
     """Sinh ngẫu nhiên khóa DEK 32 bytes"""
@@ -34,11 +27,12 @@ def decrypt_aes_gcm(b64_string: str, key: bytes) -> bytes:
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
     return cipher.decrypt_and_verify(ciphertext, tag)
 
-def encrypt_dek_with_kek(dek_bytes: bytes) -> str:
-    return encrypt_aes_gcm(dek_bytes, MASTER_KEK)
 
-def decrypt_dek_with_kek(encrypted_dek_b64: str) -> bytes:
-    return decrypt_aes_gcm(encrypted_dek_b64, MASTER_KEK)
+def encrypt_dek_with_kek(dek_bytes: bytes, master_kek: bytes) -> str:
+    return encrypt_aes_gcm(dek_bytes, master_kek)
+
+def decrypt_dek_with_kek(encrypted_dek_b64: str, master_kek: bytes) -> bytes:
+    return decrypt_aes_gcm(encrypted_dek_b64, master_kek)
 
 def encrypt_pii(plaintext_str: str, dek_bytes: bytes) -> str:
     return encrypt_aes_gcm(plaintext_str.encode('utf-8'), dek_bytes)

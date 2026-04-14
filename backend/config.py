@@ -42,4 +42,3 @@ def get_db_credentials() -> dict:
         raise ValueError(f"[CRITICAL] Thiếu cấu hình Database: {missing_keys}. Hệ thống dừng hoạt động.")
 
     return db_config
-    

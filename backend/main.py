@@ -64,7 +64,7 @@ def create_user(user: UserCreate):
         if db and db.is_connected():
             db.close()
 
-@app.get("/users/{user_id}")
+@app.get("/api/v1/users/{user_id}/pii") 
 def get_user(user_id: int):
     db = None
     cursor = None
@@ -103,7 +103,7 @@ def get_user(user_id: int):
             raise HTTPException(status_code=500, detail="System Integrity Failure")
         raise HTTPException(status_code=500, detail="Lỗi dữ liệu hệ thống")
     except Exception as e:
-        raise HTTPException(status_code=500, detail="System Integrity Failure") # Bắt buộc không nhả lỗi chi tiết
+        raise HTTPException(status_code=500, detail="System Integrity Failure") 
     finally:
         if cursor:
             cursor.close()

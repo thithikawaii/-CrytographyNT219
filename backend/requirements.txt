@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+redis
+PyJWT
+pyotp
+cryptography
+mysql-connector-python
+pycryptodome

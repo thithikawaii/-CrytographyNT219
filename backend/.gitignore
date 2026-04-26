@@ -3,6 +3,9 @@
 *.p12
 *.pem
 *.pfx
+**/nginx/certs/*.key
+**/nginx/certs/*.p12
+DEPLOY/nginx/certs/
 nginx/certs/
 setup/*.bin
 .env

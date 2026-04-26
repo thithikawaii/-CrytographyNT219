@@ -1,9 +1,79 @@
+version: '3.8'
+
 services:
+  # ==========================================
+  # LAYER 1: API GATEWAY (NGINX)
+  # ==========================================
   nginx:
     image: nginx:latest
     container_name: gateway_nginx
     ports:
-      - "80:80"
+      - "443:443"
+    restart: always
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - public_net
+      - internal_net
+    depends_on:
+      - backend
+
+  # ==========================================
+  # LAYER 2: BACKEND / IdP (FASTAPI)
+  # ==========================================
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: backend
     restart: always
+    environment:
+      - REDIS_HOST=redis_blacklist
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - DB_HOST=mysql_db
+      - DB_USER=root
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=company_db
+    networks:
+      - internal_net
+    depends_on:
+      - redis_blacklist
+      - mysql_db
+
+  # ==========================================
+  # LAYER 3: DATABASES & CACHE
+  # ==========================================
+  redis_blacklist:
+    image: redis:alpine
+    container_name: redis_blacklist
+    restart: always
+    command: redis-server --requirepass SecretRedisPass123!
+    networks:
+      - internal_net
+
+  mysql_db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASS}
+      - MYSQL_DATABASE=company_db
+    volumes:
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - db_data:/var/lib/mysql
+    networks:
+      - internal_net
+
+# ==========================================
+# CÔ LẬP MẠNG ZERO-TRUST & VOLUMES
+# ==========================================
+networks:
+  public_net:
+    driver: bridge
+  internal_net:
+    driver: bridge
+    internal: true 
+
+volumes:
+  db_data:

@@ -32,7 +32,7 @@ services:
       - REDIS_HOST=redis_blacklist
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - DB_HOST=mysql_db
-      - DB_USER=root
+      - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
     networks:
@@ -57,10 +57,13 @@ services:
     container_name: mysql_db
     restart: always
     environment:
-      - MYSQL_ROOT_PASSWORD=${DB_PASS}
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS}
       - MYSQL_DATABASE=company_db
+      - INIT_DB_USER=${DB_USER}
+      - INIT_DB_PASS=${DB_PASS}
     volumes:
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+      - ./database/init_db.sh:/docker-entrypoint-initdb.d/2-init_db.sh:ro
       - db_data:/var/lib/mysql
     networks:
       - internal_net

@@ -16,3 +16,5 @@ setup/*.bin
 !EVIDENCE/*.log
 !EVAL/*.log
 .DS_Store
+**/certs/
+

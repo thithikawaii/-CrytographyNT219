@@ -35,6 +35,7 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
+      - MASTER_KEK=${MASTER_KEK}
     networks:
       - internal_net
     depends_on:

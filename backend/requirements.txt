@@ -6,3 +6,4 @@ pyotp
 cryptography
 mysql-connector-python
 pycryptodome
+qrcode[pil]

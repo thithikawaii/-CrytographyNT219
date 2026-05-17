@@ -18,6 +18,15 @@ services:
       - internal_net
     depends_on:
       - backend
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: opa_server
+    restart: always
+    volumes:
+      - ./opa/policies:/policies:ro
+    networks:
+      - internal_net
+    command: ["run", "--server", "--log-level=debug", "/policies"]
 
   # ==========================================
   # LAYER 2: BACKEND / IdP (FASTAPI)

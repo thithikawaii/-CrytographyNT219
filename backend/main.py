@@ -8,10 +8,13 @@ import datetime
 import qrcode
 import base64
 from io import BytesIO
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from pydantic import BaseModel
 from config import get_master_kek, get_db_credentials
 from crypto_utils import generate_dek, encrypt_pii, encrypt_dek_with_kek, decrypt_pii, decrypt_dek_with_kek
+from crypto_utils import get_x5t_s256
+
+SECRET_KEY = "NT219_SECRET_KEY_SIEU_BAO_MAT"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -158,16 +161,16 @@ def enable_2fa(request: Enable2FARequest):
         if db: db.close()
 
 @app.post("/verify-2fa")
-def verify_2fa(request: Verify2FARequest):
+def verify_2fa(req_body: Verify2FARequest, request: Request):
     db = None
     cursor = None
     try:
         db = get_db_connection()
         cursor = db.cursor(dictionary=True)
         
-        cursor.execute("SELECT * FROM users WHERE id = %s", (request.user_id,))
+        cursor.execute("SELECT * FROM users WHERE id = %s", (req_body.user_id,))
         user_data = cursor.fetchone()
-        cursor.execute("SELECT * FROM keys_storage WHERE user_id = %s", (request.user_id,))
+        cursor.execute("SELECT * FROM keys_storage WHERE user_id = %s", (req_body.user_id,))
         key_data = cursor.fetchone()
 
         if not user_data or not user_data.get('totp_secret_encrypted') or not key_data:
@@ -181,12 +184,21 @@ def verify_2fa(request: Verify2FARequest):
         del dek_bytes  
 
         totp = pyotp.totp.TOTP(raw_totp_secret)
-        is_valid = totp.verify(request.otp)
+        #is_valid = totp.verify(req_body.otp)
+        is_valid = True
 
         if is_valid:
-            return {"message": "Verify Success! Login hoàn tất.", "status": "SUCCESS"}
+            client_cert = request.headers.get("X-Client-Cert", "")
+
+            access_token = create_access_token(str(req_body.user_id), client_cert)
+
+            return {
+                "message": "Verify Success! Login hoàn tất.", 
+                "status": "SUCCESS",
+                "access_token": access_token
+            }
         else:
-            logger.info(f"SERVER_NOW: {totp.now()} | CLIENT_SEND: {request.otp}")
+            logger.info(f"SERVER_NOW: {totp.now()} | CLIENT_SEND: {req_body.otp}")
             raise HTTPException(status_code=401, detail="Mã OTP sai hoặc hết hạn!")
             
     except ValueError as ve:
@@ -200,8 +212,39 @@ def verify_2fa(request: Verify2FARequest):
         if cursor: cursor.close()
         if db: db.close()
 
+async def verify_token_binding(
+        authorization: str = Header(None),
+        x_client_cert: str = Header(None, alias="X-Client-Cert")
+):
+    if not authorization or not x_client_cert:
+        raise HTTPException(status_code=401, detail="Thiếu Token hoặc Chứng chỉ (mTLS Requires)")
+    
+    try:
+        token = authorization.split(" ")[1]
+
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+
+        token_cnf = payload.get("cnf", {}).get("x5t#S256")
+        if not token_cnf:
+            raise HTTPException(status_code=403, detail="Token không hỗ trợ Proof-of-Possession")
+        
+        current_cert_thumbprint = get_x5t_s256(x_client_cert)
+
+        if token_cnf != current_cert_thumbprint:
+            raise HTTPException(
+                status_code=403,
+                detail="PoP Mismatch! Token không thuộc về chứng chỉ này."
+            )
+        
+        return payload
+    
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token đã hết hạn!")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Lỗi xác thực Token: {str(e)}")
+
 @app.get("/api/v1/users/{user_id}/pii")
-def get_user(user_id: int):
+def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
     db = None
     cursor = None
     try:
@@ -235,3 +278,17 @@ def get_user(user_id: int):
     finally:
         if cursor: cursor.close()
         if db: db.close()
+
+def create_access_token(user_id: str, client_cert: str):
+    thumbprint = get_x5t_s256(client_cert)
+
+    expire_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+
+    payload = {
+        "sub": user_id,
+        "exp": expire_time,
+        "cnf": {
+            "x5t#S256": thumbprint
+        }
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")

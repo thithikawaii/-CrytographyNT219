@@ -7,12 +7,18 @@ import jwt
 import datetime
 import qrcode
 import base64
+import uuid 
+import requests
+import urllib.parse
+import hashlib
 from io import BytesIO
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from pydantic import BaseModel
 from config import get_master_kek, get_db_credentials
 from crypto_utils import generate_dek, encrypt_pii, encrypt_dek_with_kek, decrypt_pii, decrypt_dek_with_kek
 from crypto_utils import get_x5t_s256
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
 SECRET_KEY = "NT219_SECRET_KEY_SIEU_BAO_MAT"
 
@@ -184,11 +190,10 @@ def verify_2fa(req_body: Verify2FARequest, request: Request):
         del dek_bytes  
 
         totp = pyotp.totp.TOTP(raw_totp_secret)
-        #is_valid = totp.verify(req_body.otp)
-        is_valid = True
+        is_valid = totp.verify(req_body.otp)
 
         if is_valid:
-            client_cert = request.headers.get("X-Client-Cert", "")
+            client_cert = request.headers.get("X-SSL-Client-Cert", "")
 
             access_token = create_access_token(str(req_body.user_id), client_cert)
 
@@ -214,15 +219,34 @@ def verify_2fa(req_body: Verify2FARequest, request: Request):
 
 async def verify_token_binding(
         authorization: str = Header(None),
-        x_client_cert: str = Header(None, alias="X-Client-Cert")
+        x_client_cert: str = Header(None, alias="X-SSL-Client-Cert")
 ):
-    if not authorization or not x_client_cert:
-        raise HTTPException(status_code=401, detail="Thiếu Token hoặc Chứng chỉ (mTLS Requires)")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Thiếu hoặc sai định dạng Token")
+    if not x_client_cert:
+        raise HTTPException(status_code=403, detail="Yêu cầu phải có Client Certificate (mTLS)")
     
     try:
         token = authorization.split(" ")[1]
 
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+
+        jti = payload.get("jti")
+        if not jti:
+            raise HTTPException(status_code=401, detail="Token không hợp lệ (Thiếu JTI)")
+        
+        try: 
+            r = redis.Redis(
+                host='redis_blacklist',
+                port=6379,
+                password=os.getenv('REDIS_PASSWORD'),
+                decode_responses=True
+            )
+            if r.get(jti):
+                raise HTTPException(status_code=401, detail="Token đã bị thu hồi (Blacklisted)!")
+        except redis.RedisError as re:
+            logger.error(f"Redis Connection Error: {re}")
+            raise HTTPException(status_code=500, detail="Lỗi kết nối máy chủ xác thực Redis") 
 
         token_cnf = payload.get("cnf", {}).get("x5t#S256")
         if not token_cnf:
@@ -238,13 +262,57 @@ async def verify_token_binding(
         
         return payload
     
+    except HTTPException:
+        raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token đã hết hạn!")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Chữ ký Token không hợp lệ!")
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Lỗi xác thực Token: {str(e)}")
+        logger.error(f"Middleware Exception: {str(e)}")
+        raise HTTPException(status_code=403, detail="Truy cập bị từ chối do lỗi xác thực hệ thống!")
 
 @app.get("/api/v1/users/{user_id}/pii")
 def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
+    token_user_id = token_payload.get("sub")
+
+    opa_url = "http://opa:8181/v1/data/policy/result"
+    input_data = {
+        "input": {
+            "token_user_id": str(token_user_id),
+            "requested_user_id": str(user_id),
+            "method": "GET"
+        }
+    }
+
+    try:
+        resp = requests.post(opa_url, json=input_data, timeout=2)
+        resp.raise_for_status()
+
+        opa_payload = resp.json()
+        opa_result = opa_payload.get("result", opa_payload)
+
+        allow = False
+        reason = "access denied by policy"
+        if isinstance(opa_result, bool):
+            allow = opa_result
+        elif isinstance(opa_result, dict):
+            allow = bool(opa_result.get("allow"))
+            reason = opa_result.get("reason", reason)
+        else:
+            logger.error("OPA returned unsupported payload: %s", opa_result)
+            raise HTTPException(status_code=403, detail="Authorization check failed")
+
+        if not allow:
+            logger.warning("OPA deny for token_user_id=%s requested_user_id=%s reason=%s", token_user_id, user_id, reason)
+            raise HTTPException(status_code=403, detail=reason)
+    except requests.RequestException as re:
+        logger.error("OPA connection error: %s", re)
+        raise HTTPException(status_code=403, detail="Authorization service unavailable")
+    except ValueError as ve:
+        logger.error("OPA JSON parse error: %s", ve)
+        raise HTTPException(status_code=403, detail="Authorization check failed")
+
     db = None
     cursor = None
     try:
@@ -273,7 +341,10 @@ def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
             "cccd": plain_cccd,
             "phone": plain_phone
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("get_user failure: %s", e)
         raise HTTPException(status_code=500, detail="System Integrity Failure")
     finally:
         if cursor: cursor.close()
@@ -284,11 +355,45 @@ def create_access_token(user_id: str, client_cert: str):
 
     expire_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
 
+    jti = str(uuid.uuid4())
+
     payload = {
         "sub": user_id,
         "exp": expire_time,
+        "jti": jti,
         "cnf": {
             "x5t#S256": thumbprint
         }
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+def compute_cc_thumbprint_from_nginx(cert_string: str) -> str:
+    decode_cert_pem = urllib.parse.unquote(cert_string)
+    cert_obj = x509.load_pem_x509_certificate(decode_cert_pem.encode('utf-8'))
+    der_cert = cert_obj.public_bytes(serialization.Encoding.DER)
+    cert_hash = hashlib.sha256(der_cert).digest()
+
+    thumbprint = base64.urlsafe_b64encode(cert_hash).decode('utf-8').rstrip('=')
+    return thumbprint
+
+@app.get("/api/v1/test-cert")
+async def test_receive_cert(request: Request):
+    client_cert_header = request.headers.get("X-SSL-Client-Cert")
+
+    if not client_cert_header:
+        return {"status": "Thất bại", "message": "Nginx không gửi chứng chỉ qua Header!"}
+
+    thumbprint = compute_cc_thumbprint_from_nginx(client_cert_header)
+    
+    print("========== BÁO CÁO NGÀY 1 ==========")
+    print(f"Mã băm chứng chỉ (Thumbprint): {thumbprint}")
+    print("====================================")
+
+    del client_cert_header, thumbprint
+
+    return {"status": "Thành công", "message": "Đã nhận, băm chứng chỉ và xóa dấu vết trong RAM!"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

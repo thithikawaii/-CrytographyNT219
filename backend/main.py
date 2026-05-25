@@ -8,13 +8,15 @@ import datetime
 import qrcode
 import base64
 from io import BytesIO
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
+from fastapi import FastAPI, HTTPException, Request, Header, Depends, requests
 from pydantic import BaseModel
 from config import get_master_kek, get_db_credentials
 from crypto_utils import generate_dek, encrypt_pii, encrypt_dek_with_kek, decrypt_pii, decrypt_dek_with_kek
 from crypto_utils import get_x5t_s256
 
-SECRET_KEY = "NT219_SECRET_KEY_SIEU_BAO_MAT"
+SECRET_KEY = os.getenv('JWT_SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("CRITICAL: Không tìm thấy JWT_SECRET_KEY trong môi trường!")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -184,11 +186,10 @@ def verify_2fa(req_body: Verify2FARequest, request: Request):
         del dek_bytes  
 
         totp = pyotp.totp.TOTP(raw_totp_secret)
-        #is_valid = totp.verify(req_body.otp)
-        is_valid = True
+        is_valid = totp.verify(req_body.otp)
 
         if is_valid:
-            client_cert = request.headers.get("X-Client-Cert", "")
+            client_cert = request.headers.get("X-SSL-Client-Cert", "")
 
             access_token = create_access_token(str(req_body.user_id), client_cert)
 
@@ -214,7 +215,7 @@ def verify_2fa(req_body: Verify2FARequest, request: Request):
 
 async def verify_token_binding(
         authorization: str = Header(None),
-        x_client_cert: str = Header(None, alias="X-Client-Cert")
+        x_client_cert: str = Header(None, alias="X-SSL-Client-Cert")
 ):
     if not authorization or not x_client_cert:
         raise HTTPException(status_code=401, detail="Thiếu Token hoặc Chứng chỉ (mTLS Requires)")
@@ -245,6 +246,40 @@ async def verify_token_binding(
 
 @app.get("/api/v1/users/{user_id}/pii")
 def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
+    token_user_id = token_payload.get("sub")
+
+    opa_url = "http://opa:8181/v1/data/authz/allow" 
+    input_data = {
+        "input": {
+            "token_user_id": str(token_user_id),
+            "requested_user_id": str(user_id),
+            "method": "GET",
+        }
+    }
+
+    try:
+        resp = requests.post(opa_url, json=input_data, timeout=1.0)
+        resp.raise_for_status()
+
+        opa_payload = resp.json()
+        opa_result = opa_payload.get("result", False)
+
+        allow = False
+        reason = "Access denied by policy"
+
+        if isinstance(opa_result, bool):
+            allow = opa_result
+        elif isinstance(opa_result, dict):
+            allow = bool(opa_result.get("allow", False))
+            reason = opa_result.get("reason", reason)
+
+        if not allow:
+            print(f"[BOLA BLOCKED] User {token_user_id} tried to access {user_id}")
+            raise HTTPException(status_code=403, detail=reason)
+
+    except requests.RequestException:
+        raise HTTPException(status_code=403, detail="OPA Timeout or Unreachable - Fail Closed")
+
     db = None
     cursor = None
     try:
@@ -273,8 +308,21 @@ def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
             "cccd": plain_cccd,
             "phone": plain_phone
         }
+    except HTTPException:
+        raise
+
+    except ValueError as ve:
+        if "MAC check failed" in str(ve):
+            logger.critical(f"[CRITICAL] MAC check failed - Dữ liệu PII của User {user_id} đã bị can thiệp trái phép!")
+            raise HTTPException(status_code=500, detail="System Integrity Failure")
+        
+        logger.error(f"[ERROR] ValueError tại get_user: {str(ve)}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail="System Integrity Failure")
+        logger.error(f"[ERROR] Lỗi hệ thống tại get_user: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+        
     finally:
         if cursor: cursor.close()
         if db: db.close()

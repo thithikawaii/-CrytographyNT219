@@ -8,7 +8,7 @@ services:
     image: nginx:latest
     container_name: gateway_nginx
     ports:
-      - "8000:443"
+      - "443:443"
     restart: always
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -18,15 +18,16 @@ services:
       - internal_net
     depends_on:
       - backend
+
   opa:
     image: openpolicyagent/opa:latest
-    container_name: opa_server
+    container_name: opa
     restart: always
+    command: ["run", "--server", "--addr", ":8181", "/policies"]
     volumes:
       - ./opa/policies:/policies:ro
     networks:
       - internal_net
-    command: ["run", "--server", "--log-level=debug", "/policies"]
 
   # ==========================================
   # LAYER 2: BACKEND / IdP (FASTAPI)
@@ -77,16 +78,6 @@ services:
       - ./database/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
       - ./database/init_db.sh:/docker-entrypoint-initdb.d/2-init_db.sh:ro
       - db_data:/var/lib/mysql
-    networks:
-      - internal_net
-
-  opa:
-    image: openpolicyagent/opa:latest
-    container_name: opa
-    restart: always
-    command: ["run", "--server", "--addr", ":8181", "/policies"]
-    volumes:
-      - ./opa/policies:/policies:ro
     networks:
       - internal_net
 

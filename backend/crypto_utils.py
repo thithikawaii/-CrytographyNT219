@@ -1,6 +1,7 @@
 import os
 import base64
 import hashlib
+import urllib.parse
 from Crypto.Cipher import AES
 
 
@@ -48,6 +49,8 @@ def get_x5t_s256(cert_pem_from_nginx: str) -> str:
     """
     if not cert_pem_from_nginx:
         return ""
+    
+    cert_pem_from_nginx = urllib.parse.unquote(cert_pem_from_nginx)
     
     clean_cert = cert_pem_from_nginx.replace("-----BEGIN CERTIFICATE-----", "") \
                                     .replace("-----END CERTIFICATE-----", "") \

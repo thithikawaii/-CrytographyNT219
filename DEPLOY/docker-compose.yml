@@ -37,6 +37,8 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     container_name: backend
+    ports:
+      - "8000:8000"
     restart: always
     environment:
       - REDIS_HOST=redis_blacklist
@@ -50,6 +52,7 @@ services:
       - ./.env
     networks:
       - internal_net
+      - public_net
     depends_on:
       - redis_blacklist
       - mysql_db

@@ -118,7 +118,7 @@ def test_infrastructure_connection():
 
     return {"message": "Nghiệm thu ngày 1 thành công!", "status": connection_status}
 
-@app.post("/enable-2fa")
+@app.post("/api/v1/enable-2fa") 
 def enable_2fa(request: Enable2FARequest):
     db = None
     cursor = None
@@ -168,7 +168,7 @@ def enable_2fa(request: Enable2FARequest):
         if cursor: cursor.close()
         if db: db.close()
 
-@app.post("/verify-2fa")
+@app.post("/api/v1/verify-2fa")
 def verify_2fa(req_body: Verify2FARequest, request: Request):
     db = None
     cursor = None
@@ -254,14 +254,14 @@ async def verify_token_binding(
         if not token_cnf:
             raise HTTPException(status_code=403, detail="Token không hỗ trợ Proof-of-Possession")
         
-        current_cert_thumbprint = get_x5t_s256(x_client_cert)
+        current_cert_thumbprint = compute_cc_thumbprint_from_nginx(x_client_cert)
 
         if token_cnf != current_cert_thumbprint:
             raise HTTPException(
                 status_code=403,
                 detail="PoP Mismatch! Token không thuộc về chứng chỉ này."
             )
-        
+        del x_client_cert, current_cert_thumbprint, token_cnf
         return payload
     
     except HTTPException:
@@ -288,7 +288,7 @@ def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
     }
 
     try:
-        resp = requests.post(opa_url, json=input_data, timeout=2)
+        resp = requests.post(opa_url, json=input_data, timeout=1.0)
         resp.raise_for_status()
 
         opa_payload = resp.json()

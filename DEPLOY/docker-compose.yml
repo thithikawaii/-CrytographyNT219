@@ -28,6 +28,17 @@ services:
       - internal_net
     command: ["run", "--server", "--log-level=debug", "/policies"]
 
+  vault:
+    image: hashicorp/vault:latest
+    container_name: vault
+    restart: always
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=my-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - internal_net
   # ==========================================
   # LAYER 2: BACKEND / IdP (FASTAPI)
   # ==========================================
@@ -45,6 +56,7 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
       - MASTER_KEK=${MASTER_KEK}
+      - VAULT_TOKEN=my-root-token
     networks:
       - internal_net
     depends_on:

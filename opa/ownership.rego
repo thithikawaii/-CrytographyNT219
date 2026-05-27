@@ -86,7 +86,9 @@ reason = msg {
     is_pii_endpoint
     msg := "Deny: Missing user_id or owner_id in the request payload"
 } else = msg {
-    msg := sprintf("Deny: Unknown endpoint or method (E-Z1 Zero-Trust blocked: %v %v)", [input.method, input.path])
+    # CÚ CHỐT CHẶN CUỐI CÙNG (CATCH-ALL) - ĐÃ GỘP Ý CỦA QUYÊN VÀ IN RA ĐƯỜNG DẪN BỊ CHẶN
+    msg := sprintf("Deny: Endpoint is not defined, not public, or access denied by default (Zero-Trust Policy blocked: %v %v)", [input.method, input.path])
 }
 
+# 6. Đóng gói kết quả trả về cho Backend (Backend sẽ nhận được cục JSON sạch sẽ này)
 decision = {"allow": allow, "reason": reason}

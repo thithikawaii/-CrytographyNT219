@@ -15,7 +15,11 @@ from io import BytesIO
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from pydantic import BaseModel
 from config import get_master_kek, get_db_credentials
-from crypto_utils import generate_dek, encrypt_pii, encrypt_dek_with_kek, decrypt_pii, decrypt_dek_with_kek
+from crypto_utils import (
+    compute_cc_thumbprint_from_nginx, 
+    generate_dek, wrap_dek, unwrap_dek,
+    encrypt_pii, decrypt_pii
+)
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 

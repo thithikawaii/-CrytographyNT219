@@ -1,5 +1,5 @@
 from vault_client import get_master_kek
-from crypto_manager import generate_dek, wrap_dek, unwrap_dek 
+from crypto_utils import generate_dek, wrap_dek, unwrap_dek
 
 kek = get_master_kek()
 print("KEK lấy từ Vault: [THÀNH CÔNG - ĐÃ GIẤU KÍN ĐỂ BẢO MẬT]")

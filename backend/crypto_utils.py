@@ -1,41 +1,50 @@
 import os
 import base64
-from Crypto.Cipher import AES
+import hashlib
+import urllib.parse
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+def compute_cc_thumbprint_from_nginx(cert_string: str) -> str:
+    """Băm chứng chỉ X.509 sang Base64url SHA-256 (Chuẩn RFC 8705)."""
+    if not cert_string:
+        return ""
+    decode_cert_pem = urllib.parse.unquote(cert_string)
+    cert_obj = x509.load_pem_x509_certificate(decode_cert_pem.encode('utf-8'))
+    der_cert = cert_obj.public_bytes(serialization.Encoding.DER)
+    cert_hash = hashlib.sha256(der_cert).digest()
+    return base64.urlsafe_b64encode(cert_hash).decode('utf-8').rstrip('=')
+
+
+def encrypt_pii(plaintext_str: str, dek_bytes: bytes) -> str:
+    aesgcm = AESGCM(dek_bytes)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext_str.encode('utf-8'), None)
+    return base64.b64encode(nonce + ciphertext).decode('utf-8')
+
+def decrypt_pii(encrypt_pii_b64: str, dek_bytes: bytes) -> str:
+    aesgcm = AESGCM(dek_bytes)
+    encrypted_data = base64.b64decode(encrypt_pii_b64)
+    nonce = encrypted_data[:12]
+    ciphertext = encrypted_data[12:]
+    return aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
 
 
 def generate_dek() -> bytes:
-    """Sinh ngẫu nhiên khóa DEK 32 bytes"""
-    return os.urandom(32)
+    """Sinh ngẫu nhiên khóa DEK 256-bit (32 bytes) an toàn"""
+    return AESGCM.generate_key(bit_length=256)
 
-def encrypt_aes_gcm(data_bytes: bytes, key: bytes) -> str:
-    """Hàm lõi: Đóng gói Nonce (12B) + Ciphertext + Tag (16B) -> Base64"""
-    nonce = os.urandom(12)
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-    ciphertext, tag = cipher.encrypt_and_digest(data_bytes)
+def wrap_dek(kek: bytes, dek: bytes) -> bytes:
+    """Bọc DEK bằng KEK sử dụng thuật toán AES-GCM (AEAD)"""
+    aesgcm = AESGCM(kek)
+    nonce = os.urandom(12) 
+    encrypted_dek = aesgcm.encrypt(nonce, dek, None)
+    return nonce + encrypted_dek
 
-    packet = nonce + ciphertext + tag
-    return base64.b64encode(packet).decode('utf-8')
-
-def decrypt_aes_gcm(b64_string: str, key: bytes) -> bytes:
-    """Hàm lõi: Giải mac và kiểm tra tính toàn vẹn (E-C3)"""
-    raw_data = base64.b64decode(b64_string)
-
-    nonce = raw_data[:12]
-    tag = raw_data[-16:]
-    ciphertext = raw_data[12:-16]
-    
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-    return cipher.decrypt_and_verify(ciphertext, tag)
-
-
-def encrypt_dek_with_kek(dek_bytes: bytes, master_kek: bytes) -> str:
-    return encrypt_aes_gcm(dek_bytes, master_kek)
-
-def decrypt_dek_with_kek(encrypted_dek_b64: str, master_kek: bytes) -> bytes:
-    return decrypt_aes_gcm(encrypted_dek_b64, master_kek)
-
-def encrypt_pii(plaintext_str: str, dek_bytes: bytes) -> str:
-    return encrypt_aes_gcm(plaintext_str.encode('utf-8'), dek_bytes)
-
-def decrypt_pii(encrypt_pii_b64: str, dek_bytes: bytes) -> str:
-    return decrypt_aes_gcm(encrypt_pii_b64, dek_bytes).decode('utf-8')
+def unwrap_dek(kek: bytes, wrapped_dek: bytes) -> bytes:
+    """Mở bọc DEK bằng KEK sử dụng thuật toán AES-GCM (AEAD)"""
+    aesgcm = AESGCM(kek)
+    nonce = wrapped_dek[:12]
+    encrypted_dek = wrapped_dek[12:]
+    return aesgcm.decrypt(nonce, encrypted_dek, None)

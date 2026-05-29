@@ -18,27 +18,17 @@ services:
       - internal_net
     depends_on:
       - backend
+
   opa:
     image: openpolicyagent/opa:latest
-    container_name: opa_server
+    container_name: opa
     restart: always
+    command: ["run", "--server", "--log-level=debug", "/policies"]
     volumes:
       - ./opa/policies:/policies:ro
     networks:
       - internal_net
-    command: ["run", "--server", "--log-level=debug", "/policies"]
 
-  vault:
-    image: hashicorp/vault:latest
-    container_name: vault
-    restart: always
-    environment:
-      - VAULT_DEV_ROOT_TOKEN_ID=my-root-token
-      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
-    cap_add:
-      - IPC_LOCK
-    networks:
-      - internal_net
   # ==========================================
   # LAYER 2: BACKEND / IdP (FASTAPI)
   # ==========================================
@@ -56,7 +46,8 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
       - MASTER_KEK=${MASTER_KEK}
-      - VAULT_TOKEN=my-root-token
+    env_file:
+      - ./.env
     networks:
       - internal_net
     depends_on:
@@ -67,7 +58,7 @@ services:
   # LAYER 3: DATABASES & CACHE
   # ==========================================
   redis_blacklist:
-    image: redis:alpine
+    image: redis:alpines
     container_name: redis_blacklist
     restart: always
     command: redis-server --requirepass  ${REDIS_PASSWORD}

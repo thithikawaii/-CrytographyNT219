@@ -23,9 +23,20 @@ services:
     image: openpolicyagent/opa:latest
     container_name: opa
     restart: always
-    command: ["run", "--server", "--log-level=debug", "/policies"]
+    command: ["run", "--server", "--addr", ":8181", "--log-level=debug", "/policies"]
     volumes:
       - ./opa/policies:/policies:ro
+    networks:
+      - internal_net
+  vault:
+    image: hashicorp/vault:latest
+    container_name: vault
+    restart: always
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=${VAULT_TOKEN}
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
     networks:
       - internal_net
 
@@ -45,11 +56,12 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
-      - MASTER_KEK=${MASTER_KEK}
-    env_file:
+      - VAULT_TOKEN=${VAULT_TOKEN}
       - ./.env
     networks:
       - internal_net
+    env_file:
+      - ./.env
     depends_on:
       - redis_blacklist
       - mysql_db
@@ -58,7 +70,7 @@ services:
   # LAYER 3: DATABASES & CACHE
   # ==========================================
   redis_blacklist:
-    image: redis:alpines
+    image: redis:alpine
     container_name: redis_blacklist
     restart: always
     command: redis-server --requirepass  ${REDIS_PASSWORD}
@@ -80,6 +92,7 @@ services:
       - db_data:/var/lib/mysql
     networks:
       - internal_net
+   
 
 # ==========================================
 # CÔ LẬP MẠNG ZERO-TRUST & VOLUMES

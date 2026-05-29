@@ -1,8 +1,3 @@
-#!/bin/bash
-# Chức năng: Khởi tạo user và phân quyền tối thiểu (Least Privilege) theo Zero-Trust
-
-# Nếu không truyền biến ALLOWED_HOST từ ngoài vào, mặc định sẽ là '%' (Dùng cho Docker local)
-# Khi triển khai lên VM Tailscale (D2), truyền ALLOWED_HOST="100.74.182.127"
 HOST_POLICY=${ALLOWED_HOST:-"%"}
 
 echo "=> [DBA] Dang cau hinh phan quyen cho Backend tai Host: $HOST_POLICY"

@@ -57,7 +57,6 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
       - VAULT_TOKEN=${VAULT_TOKEN}
-      - ./.env
     networks:
       - internal_net
     env_file:

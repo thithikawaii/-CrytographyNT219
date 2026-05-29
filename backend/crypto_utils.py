@@ -2,9 +2,13 @@ import os
 import base64
 import hashlib
 import urllib.parse
+import logging
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
+
+logger = logging.getLogger(__name__)
 
 def compute_cc_thumbprint_from_nginx(cert_string: str) -> str:
     """Băm chứng chỉ X.509 sang Base64url SHA-256 (Chuẩn RFC 8705)."""
@@ -28,7 +32,12 @@ def decrypt_pii(encrypt_pii_b64: str, dek_bytes: bytes) -> str:
     encrypted_data = base64.b64decode(encrypt_pii_b64)
     nonce = encrypted_data[:12]
     ciphertext = encrypted_data[12:]
-    return aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
+
+    try:
+        return aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
+    except InvalidTag:
+        logger.critical("[CRITICAL] MAC check failed - Dữ liệu bị can thiệp!")
+        raise ValueError("MAC check failed")
 
 
 def generate_dek() -> bytes:
@@ -47,4 +56,10 @@ def unwrap_dek(kek: bytes, wrapped_dek: bytes) -> bytes:
     aesgcm = AESGCM(kek)
     nonce = wrapped_dek[:12]
     encrypted_dek = wrapped_dek[12:]
-    return aesgcm.decrypt(nonce, encrypted_dek, None)
+
+    try:
+        return aesgcm.decrypt(nonce, encrypted_dek, None)
+    except InvalidTag:
+        logger.critical("[CRITICAL] MAC check failed - Dữ liệu DEK bị can thiệp!")
+        raise ValueError("MAC check failed")
+    

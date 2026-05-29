@@ -13,6 +13,7 @@ import urllib.parse
 import hashlib
 from io import BytesIO
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
+from vault_client import get_master_kek
 from pydantic import BaseModel
 from config import get_master_kek, get_db_credentials
 from crypto_utils import (
@@ -141,8 +142,7 @@ def enable_2fa(request: Enable2FARequest):
         raw_totp_secret = pyotp.random_base32()
         
         kek_key = get_master_kek()
-        dek_bytes = decrypt_dek_with_kek(key_data['encrypted_dek'], kek_key)
-        del kek_key
+dek_bytes = unwrap_dek(kek_key, key_data['encrypted_dek'])        del kek_key
 
         enc_totp_secret = encrypt_pii(raw_totp_secret, dek_bytes)
         del dek_bytes
@@ -189,8 +189,8 @@ def verify_2fa(req_body: Verify2FARequest, request: Request):
             raise HTTPException(status_code=400, detail="MFA chưa bật hoặc không tìm thấy khóa!")
 
         kek_key = get_master_kek()
-        dek_bytes = decrypt_dek_with_kek(key_data['encrypted_dek'], kek_key)
-        del kek_key  
+        dek_bytes = unwrap_dek(kek_key, key_data['encrypted_dek'])
+        del kek_key
 
         raw_totp_secret = decrypt_pii(user_data['totp_secret_encrypted'], dek_bytes)
         del dek_bytes  

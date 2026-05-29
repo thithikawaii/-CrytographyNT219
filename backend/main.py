@@ -142,7 +142,8 @@ def enable_2fa(request: Enable2FARequest):
         raw_totp_secret = pyotp.random_base32()
         
         kek_key = get_master_kek()
-dek_bytes = unwrap_dek(kek_key, key_data['encrypted_dek'])        del kek_key
+        dek_bytes = unwrap_dek(kek_key, key_data['encrypted_dek'])
+        del kek_key
 
         enc_totp_secret = encrypt_pii(raw_totp_secret, dek_bytes)
         del dek_bytes
@@ -171,7 +172,6 @@ dek_bytes = unwrap_dek(kek_key, key_data['encrypted_dek'])        del kek_key
     finally:
         if cursor: cursor.close()
         if db: db.close()
-
 @app.post("/api/v1/verify-2fa")
 def verify_2fa(req_body: Verify2FARequest, request: Request):
     db = None

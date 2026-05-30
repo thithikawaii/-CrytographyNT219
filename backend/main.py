@@ -67,8 +67,9 @@ def create_user(request: CreateUserRequest):
         dek = generate_dek()
         enc_cccd = encrypt_pii(request.cccd, dek)
         enc_phone = encrypt_pii(request.phone, dek)
-        enc_dek = encrypt_dek_with_kek(dek, kek_key) 
+        enc_dek = wrap_dek(kek_key, dek) 
         del kek_key
+        del kek 
 
         sql_user = "INSERT INTO users (username, pii_cccd_encrypted, pii_phone_encrypted) VALUES (%s, %s, %s)"
         cursor.execute(sql_user, (request.username, enc_cccd, enc_phone))
@@ -334,7 +335,7 @@ def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
             raise HTTPException(status_code=404, detail="User not found")
 
         kek_key = get_master_kek()
-        dek_bytes = decrypt_dek_with_kek(key_data['encrypted_dek'], kek_key)
+        dek_bytes = unwrap_dek(kek_key, key_data['encrypted_dek'])
         del kek_key
 
         plain_cccd = decrypt_pii(user_data['pii_cccd_encrypted'], dek_bytes)
@@ -383,14 +384,6 @@ def create_access_token(user_id: str, client_cert: str):
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-def compute_cc_thumbprint_from_nginx(cert_string: str) -> str:
-    decode_cert_pem = urllib.parse.unquote(cert_string)
-    cert_obj = x509.load_pem_x509_certificate(decode_cert_pem.encode('utf-8'))
-    der_cert = cert_obj.public_bytes(serialization.Encoding.DER)
-    cert_hash = hashlib.sha256(der_cert).digest()
-
-    thumbprint = base64.urlsafe_b64encode(cert_hash).decode('utf-8').rstrip('=')
-    return thumbprint
 
 @app.get("/api/v1/test-cert")
 async def test_receive_cert(request: Request):

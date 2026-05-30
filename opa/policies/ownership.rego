@@ -2,18 +2,15 @@ package authz
 
 default allow = false
 
-# 1. Kiểm tra đủ data đầu vào
 has_ids {
     input.user_id != null
     input.owner_id != null
 }
 
-# 2. Định nghĩa quyền Admin
 is_admin {
     input.role == "admin"
 }
 
-# 3. NHẬN DIỆN API VÀ METHOD (Fix conflict chặn nhầm POST)
 is_pii_endpoint {
     startswith(input.path, "/api/v1/users/")
     endswith(input.path, "/pii")
@@ -23,7 +20,6 @@ is_allowed_method {
     input.method == "GET"
 }
 
-# Các API Public không cần check BOLA (cho qua)
 is_public_api {
     input.path == "/users"
     input.method == "POST"
@@ -38,7 +34,6 @@ is_public_api {
     input.path == "/verify-2fa"
 }
 
-# 4. RULE CHO PHÉP (ALLOW)
 allow {
     is_public_api
 }
@@ -56,7 +51,6 @@ allow {
     input.user_id == input.owner_id
 }
 
-# 5. XUẤT LÝ DO (REASON) - Xử lý E-X2 và E-Z1
 reason = msg {
     is_public_api
     msg := "Allow: Public API endpoint accessed"
@@ -86,9 +80,7 @@ reason = msg {
     is_pii_endpoint
     msg := "Deny: Missing user_id or owner_id in the request payload"
 } else = msg {
-    # CÚ CHỐT CHẶN CUỐI CÙNG (CATCH-ALL) - ĐÃ GỘP Ý CỦA QUYÊN VÀ IN RA ĐƯỜNG DẪN BỊ CHẶN
     msg := sprintf("Deny: Endpoint is not defined, not public, or access denied by default (Zero-Trust Policy blocked: %v %v)", [input.method, input.path])
 }
 
-# 6. Đóng gói kết quả trả về cho Backend (Backend sẽ nhận được cục JSON sạch sẽ này)
 decision = {"allow": allow, "reason": reason}

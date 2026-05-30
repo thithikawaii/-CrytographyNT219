@@ -20,7 +20,7 @@ services:
       - backend
 
   opa:
-    image: openpolicyagent/opa:latest
+    image: openpolicyagent/opa:0.57.1
     container_name: opa
     restart: always
     command: ["run", "--server", "--addr", ":8181", "--log-level=debug", "/policies"]

@@ -69,7 +69,7 @@ def create_user(request: CreateUserRequest):
         enc_phone = encrypt_pii(request.phone, dek)
         enc_dek = wrap_dek(kek_key, dek) 
         del kek_key
-        del kek 
+        del dek 
 
         sql_user = "INSERT INTO users (username, pii_cccd_encrypted, pii_phone_encrypted) VALUES (%s, %s, %s)"
         cursor.execute(sql_user, (request.username, enc_cccd, enc_phone))
@@ -283,12 +283,13 @@ async def verify_token_binding(
 def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
     token_user_id = token_payload.get("sub")
 
-    opa_url = "http://opa:8181/v1/data/authz/allow" 
+    opa_url = "http://opa:8181/v1/data/authz/decision" 
     input_data = {
         "input": {
-            "token_user_id": str(token_user_id),
-            "requested_user_id": str(user_id),
-            "method": "GET"
+            "user_id": str(token_user_id),
+            "owner_id": str(user_id),
+            "method": "GET",
+            "path": f"/api/v1/users/{user_id}/pii"
         }
     }
 

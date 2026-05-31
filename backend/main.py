@@ -12,10 +12,10 @@ import requests
 import urllib.parse
 import hashlib
 from io import BytesIO
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from vault_client import get_master_kek
+from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from pydantic import BaseModel
-from config import get_master_kek, get_db_credentials
+from config import get_db_credentials
 from crypto_utils import (
     compute_cc_thumbprint_from_nginx, 
     generate_dek, wrap_dek, unwrap_dek,
@@ -69,7 +69,7 @@ def create_user(request: CreateUserRequest):
         enc_phone = encrypt_pii(request.phone, dek)
         enc_dek = wrap_dek(kek_key, dek) 
         del kek_key
-        del kek 
+        del dek 
 
         sql_user = "INSERT INTO users (username, pii_cccd_encrypted, pii_phone_encrypted) VALUES (%s, %s, %s)"
         cursor.execute(sql_user, (request.username, enc_cccd, enc_phone))
@@ -202,7 +202,7 @@ def verify_2fa(req_body: Verify2FARequest, request: Request):
         if is_valid:
             client_cert = request.headers.get("X-SSL-Client-Cert", "")
 
-            access_token = create_access_token(str(req_body.user_id), client_cert)
+            access_token = create_access_token(str(req_body.user_id), client_cert, user_data.get("role", "user"))
 
             return {
                 "message": "Verify Success! Login hoàn tất.", 
@@ -283,12 +283,13 @@ async def verify_token_binding(
 def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
     token_user_id = token_payload.get("sub")
 
-    opa_url = "http://opa:8181/v1/data/authz/allow" 
+    opa_url = "http://opa:8181/v1/data/authz/decision" 
     input_data = {
         "input": {
-            "token_user_id": str(token_user_id),
-            "requested_user_id": str(user_id),
-            "method": "GET"
+            "user_id": str(token_user_id),
+            "owner_id": str(user_id),
+            "method": "GET",
+            "path": f"/api/v1/users/{user_id}/pii"
         }
     }
 
@@ -367,7 +368,7 @@ def get_user(user_id: int, token_payload: dict = Depends(verify_token_binding)):
         if cursor: cursor.close()
         if db: db.close()
 
-def create_access_token(user_id: str, client_cert: str):
+def create_access_token(user_id: str, client_cert: str, role: str = "user"):
     thumbprint = compute_cc_thumbprint_from_nginx(client_cert)
 
     expire_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
@@ -378,6 +379,7 @@ def create_access_token(user_id: str, client_cert: str):
         "sub": user_id,
         "exp": expire_time,
         "jti": jti,
+        "role": role,
         "cnf": {
             "x5t#S256": thumbprint
         }
@@ -402,6 +404,17 @@ async def test_receive_cert(request: Request):
 
     return {"status": "Thành công", "message": "Đã nhận, băm chứng chỉ và xóa dấu vết trong RAM!"}
 
+
+
+@app.post("/api/v1/logout")
+async def logout(token_payload: dict = Depends(verify_token_binding)):
+    jti = token_payload.get("jti")
+    try:
+        r = redis.Redis(host="redis_blacklist", port=6379, password=os.getenv("REDIS_PASSWORD"), decode_responses=True)
+        r.setex(jti, 3600, "blacklisted")
+        return {"message": "Đăng xuất thành công, token đã bị thu hồi!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

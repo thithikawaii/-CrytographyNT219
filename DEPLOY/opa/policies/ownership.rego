@@ -28,10 +28,10 @@ is_public_api {
     input.path == "/login"
 }
 is_public_api {
-    input.path == "/enable-2fa"
+    input.path == "/api/v1/enable-2fa"
 }
 is_public_api {
-    input.path == "/verify-2fa"
+    input.path == "/api/v1/verify-2fa"
 }
 
 allow {

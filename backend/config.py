@@ -14,16 +14,13 @@ def get_master_kek() -> bytes:
     if not master_kek_str:
         raise ValueError("[CRITICAL] Không tìm thấy MASTER_KEK trong môi trường! Hệ thống dừng hoạt động.")
 
-    if "MASTER_KEK" in os.environ:
-        del os.environ["MASTER_KEK"]
-
     try:
         master_kek = base64.b64decode(master_kek_str)
     except Exception:
         raise ValueError("[CRITICAL] MASTER_KEK không đúng định dạng Base64!")
 
     if len(master_kek) != 32:
-        raise ValueError(f"[CRITICAL] MASTER_KEK phải dài đúng 32 bytes cho AES-256! HIện là {len(master_kek)} bytes.")
+        raise ValueError(f"[CRITICAL] MASTER_KEK phải dài đúng 32 bytes cho AES-256! Hiện là {len(master_kek)} bytes.")
 
     return master_kek
 
@@ -40,7 +37,7 @@ def get_db_credentials() -> dict:
         "name": os.getenv("DB_NAME")
     }
 
-    missing_keys =[k for k, v in db_config.items() if not v]
+    missing_keys = [k for k, v in db_config.items() if not v]
     if missing_keys:
         raise ValueError(f"[CRITICAL] Thiếu cấu hình Database: {missing_keys}. Hệ thống dừng hoạt động.")
 

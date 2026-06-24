@@ -17,7 +17,8 @@ services:
       - public_net
       - internal_net
     depends_on:
-      - backend
+      - idp_service
+      - resource_server
 
   opa:
     image: openpolicyagent/opa:0.57.1
@@ -41,13 +42,14 @@ services:
       - internal_net
 
   # ==========================================
-  # LAYER 2: BACKEND / IdP (FASTAPI)
+  # LAYER 2: Identity Provider (IdP Service)
   # ==========================================
-  backend:
+  idp_service:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    container_name: backend
+    container_name: idp_service
+    command: ["uvicorn", "idp_service.main:app", "--host", "0.0.0.0", "--port", "8001"]
     restart: always
     environment:
       - REDIS_HOST=redis_blacklist
@@ -57,6 +59,7 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_NAME=company_db
       - VAULT_TOKEN=${VAULT_TOKEN}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     networks:
       - internal_net
     env_file:
@@ -64,6 +67,36 @@ services:
     depends_on:
       - redis_blacklist
       - mysql_db
+      - vault
+
+  # ==========================================
+  # LAYER 3: Resource Server
+  # ==========================================
+  resource_server:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: resource_server
+    command: ["uvicorn", "resource_server.main:app", "--host", "0.0.0.0", "--port", "8002"]
+    restart: always
+    environment:
+      - REDIS_HOST=redis_blacklist
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - DB_HOST=mysql_db
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=company_db
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    networks:
+      - internal_net
+    env_file:
+      - ./.env
+    depends_on:
+      - redis_blacklist
+      - mysql_db
+      - vault
+      - opa
 
   # ==========================================
   # LAYER 3: DATABASES & CACHE
